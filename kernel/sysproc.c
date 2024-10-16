@@ -5,6 +5,7 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "pstat.h"
 
 uint64
 sys_exit(void)
@@ -98,7 +99,22 @@ sys_settickets(void)
 {
  int tickets;
  argint(0, &tickets);
+ if (tickets < 0) {
+ return -1;
+ }
  myproc()->tickets = tickets;
  return 0; 
 }
 
+uint64
+sys_getpinfo(void)
+{
+  struct pstat pstats;
+  uint64 dst_pstats;
+  argaddr(0, &dst_pstats);
+  if (dst_pstats <= 0 || dst_pstats > myproc()->sz) {
+    return -1;
+  }
+  fillpstats(&pstats);
+  return copyout(myproc()->pagetable, dst_pstats, (char *) &pstats, sizeof(struct pstat));
+}
