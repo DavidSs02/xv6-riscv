@@ -1,3 +1,9 @@
+#ifndef _DEFS_H_
+#define _DEFS_H_
+
+#include "types.h"
+#include "riscv.h"
+
 struct buf;
 struct context;
 struct file;
@@ -9,6 +15,7 @@ struct sleeplock;
 struct stat;
 struct superblock;
 struct pstat;
+struct vma;
 
 // bio.c
 void            binit(void);
@@ -34,6 +41,8 @@ void            fileinit(void);
 int             fileread(struct file*, uint64, int n);
 int             filestat(struct file*, uint64 addr);
 int             filewrite(struct file*, uint64, int n);
+uint64          mmap(uint64 addr, int length, int prot, int flags, int fd, struct file *f, int offset, int valid_addr);
+int             munmap(uint64 addr, int length);
 
 // fs.c
 void            fsinit(int);
@@ -64,6 +73,9 @@ void            ramdiskrw(struct buf*);
 void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
+void            incref(void *pa);
+void            decref(void *pa);
+uint            getref(void *pa);
 
 // log.c
 void            initlog(int, struct superblock*);
@@ -108,6 +120,15 @@ int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 void            fillpstats(struct pstat *pstats);
+
+// vma.c 
+void            vma_free(struct vma *vma, struct proc * p);
+int             vma_find(struct vma *vma, uint64 addr);
+int             vma_find_free(struct vma *vma);
+uint64          vma_get_new_addr(struct vma *vma, int length);
+int             vma_fill(struct vma *vma, int vma_index, uint64 addr, int length, int prot, int flags, int fd, int offset, struct file *file);
+int             vma_free_pages(struct vma *vma, int index, uint64 init_va, uint64 end_va, pagetable_t pagetable);
+void            vma_copy(struct proc *proc_src, struct proc* proc_dst);
 
 // swtch.S
 void            swtch(struct context*, struct context*);
@@ -175,6 +196,8 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+void            uvmcopypages(uint64 init_va, uint64 end_va, pagetable_t src, pagetable_t dst);
+int             uvmcompletemap(uint64 va);
 
 // plic.c
 void            plicinit(void);
@@ -189,3 +212,4 @@ void            virtio_disk_intr(void);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
+#endif

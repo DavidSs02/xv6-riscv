@@ -25,6 +25,9 @@ int sleep(int);
 int uptime(void);
 int settickets(int);
 int getpinfo(struct pstat *);
+// Se asume que addr y offset van a ser 0, pero igualmente los ponemos.
+void *mmap(void *addr, uint length, int prot, int flags,int fd, uint offset);
+int munmap(void *addr, int length);
 
 // ulib.c
 int stat(const char*, struct stat*);

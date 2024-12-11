@@ -503,3 +503,59 @@ sys_pipe(void)
   }
   return 0;
 }
+// void *mmap(void *addr, int length, int prot, int flags,int fd, int offset);
+uint64
+sys_mmap(void)
+{
+  uint64 addr;
+  argaddr(0, &addr);
+  if (addr < 0)
+    return -1;
+
+  int length;
+  argint(1, &length);
+  if (length < 0)
+    return -1;
+
+  int prot;
+  argint(2, &prot);
+  if (prot < 0 || prot > (PROT_READ | PROT_WRITE))
+    return -1;
+
+  int flags;
+  argint(3, &flags);
+  if ((flags != MAP_SHARED) && (flags != MAP_PRIVATE))
+    return -1;
+
+  int fd;
+  struct file *f;
+  if(argfd(4, &fd, &f) < 0)
+    return -1;
+
+  int offset;
+  argint(5, &offset);
+  if (offset < 0)
+    return -1;
+
+  if (flags == MAP_SHARED){
+    int can_write_map = (prot & PROT_WRITE);
+    int can_write_file = (f->writable == 1);
+    if (!can_write_file && can_write_map)
+      return -1;
+  }
+  uint64 correct_mapped = mmap(addr,length, prot, flags, fd, f, offset,0);
+  return correct_mapped;
+}
+
+uint64
+sys_munmap(void){
+  uint64 addr;
+  argaddr(0, &addr);
+  if (addr < 0)
+    return -1;
+  int length;
+  argint(1, &length);
+  if (length < 0)
+    return -1; 
+  return munmap(addr, length);
+}

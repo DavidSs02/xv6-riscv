@@ -6,8 +6,10 @@
 #include "proc.h"
 #include "defs.h"
 #include "elf.h"
+#include "fcntl.h"
+#include "file.h"
 
-static int loadseg(pde_t *, uint64, struct inode *, uint, uint);
+//static int loadseg(pde_t *, uint64, struct inode *, uint, uint);
 
 int flags2perm(int flags)
 {
@@ -17,6 +19,16 @@ int flags2perm(int flags)
     if(flags & 0x2)
       perm |= PTE_W;
     return perm;
+}
+
+int perm2prot(int perm)
+{
+  int prot = 0;
+  if(perm & PTE_X)
+    prot |= PROT_EXEC;
+  if (perm & PTE_W)
+    prot |= PROT_WRITE;
+  return prot;
 }
 
 int
@@ -30,6 +42,9 @@ exec(char *path, char **argv)
   struct proghdr ph;
   pagetable_t pagetable = 0, oldpagetable;
   struct proc *p = myproc();
+
+
+  vma_free(&p->vma_list,p);
 
   begin_op();
 
@@ -48,7 +63,14 @@ exec(char *path, char **argv)
 
   if((pagetable = proc_pagetable(p)) == 0)
     goto bad;
-
+  struct file *phfile = filealloc();
+  phfile->type = FD_INODE;
+  phfile->ref = 1;
+  phfile->readable = 1;
+  phfile->writable = 0;
+  phfile->ip = ip;
+  phfile->off = 0;
+  idup(ip);
   // Load program into memory.
   for(i=0, off=elf.phoff; i<elf.phnum; i++, off+=sizeof(ph)){
     if(readi(ip, 0, (uint64)&ph, off, sizeof(ph)) != sizeof(ph))
@@ -61,17 +83,22 @@ exec(char *path, char **argv)
       goto bad;
     if(ph.vaddr % PGSIZE != 0)
       goto bad;
-    uint64 sz1;
-    if((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz, flags2perm(ph.flags))) == 0)
+    //uint64 sz1;
+    int perm = flags2perm(ph.flags);
+    if (mmap(ph.vaddr,ph.memsz,perm2prot(perm),MAP_PRIVATE,0,phfile,ph.off,1) != ph.vaddr) {
       goto bad;
-    sz = sz1;
-    if(loadseg(pagetable, ph.vaddr, ip, ph.off, ph.filesz) < 0)
-      goto bad;
+    }
+    fileclose(phfile);
+    //if((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz, flags2perm(ph.flags))) == 0)
+    //  goto bad;
+    sz = ph.vaddr + ph.memsz;
+    //if(loadseg(pagetable, ph.vaddr, ip, ph.off, ph.filesz) < 0)
+    //  goto bad;
   }
   iunlockput(ip);
   end_op();
-  ip = 0;
 
+  ip = 0;
   p = myproc();
   uint64 oldsz = p->sz;
 
@@ -144,23 +171,23 @@ exec(char *path, char **argv)
 // va must be page-aligned
 // and the pages from va to va+sz must already be mapped.
 // Returns 0 on success, -1 on failure.
-static int
-loadseg(pagetable_t pagetable, uint64 va, struct inode *ip, uint offset, uint sz)
-{
-  uint i, n;
-  uint64 pa;
+//static int
+//loadseg(pagetable_t pagetable, uint64 va, struct inode *ip, uint offset, uint sz)
+//{
+//   uint i, n;
+//   uint64 pa;
 
-  for(i = 0; i < sz; i += PGSIZE){
-    pa = walkaddr(pagetable, va + i);
-    if(pa == 0)
-      panic("loadseg: address should exist");
-    if(sz - i < PGSIZE)
-      n = sz - i;
-    else
-      n = PGSIZE;
-    if(readi(ip, 0, (uint64)pa, offset+i, n) != n)
-      return -1;
-  }
+//   for(i = 0; i < sz; i += PGSIZE){
+//     pa = walkaddr(pagetable, va + i);
+//     if(pa == 0)
+//       panic("loadseg: address should exist");
+//     if(sz - i < PGSIZE)
+//       n = sz - i;
+//     else
+//       n = PGSIZE;
+//     if(readi(ip, 0, (uint64)pa, offset+i, n) != n)
+//       return -1;
+//   }
   
-  return 0;
-}
+//   return 0;
+// }

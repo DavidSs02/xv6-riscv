@@ -3,8 +3,12 @@
 #include "memlayout.h"
 #include "riscv.h"
 #include "spinlock.h"
+#include "fs.h"
+#include "sleeplock.h"
 #include "proc.h"
 #include "defs.h"
+#include "fcntl.h"
+#include "file.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -49,8 +53,9 @@ usertrap(void)
   
   // save user program counter.
   p->trapframe->epc = r_sepc();
+  int cause = r_scause();
   
-  if(r_scause() == 8){
+  if(cause == 8){
     // system call
 
     if(killed(p))
@@ -65,6 +70,53 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if(cause == 13 || cause == 15 || cause == 12){
+    // Get the fault page address
+    uint64 fault_addr = (uint64) r_stval();
+    // Check if the address is valid
+    // We assume the part below sz is always mapped
+    // Get the valid VMA
+    int valid_vma = vma_find(&(p->vma_list), fault_addr);
+    if (valid_vma == -1){
+      setkilled(p);
+      goto finished;
+    }
+    // Check if the fault was caused by a WRITE on a protected page
+    int can_write = (p->vma_list.prot[valid_vma] & PROT_WRITE) != 0; 
+    if (cause == 15 && can_write == 0){
+      setkilled(p);
+      goto finished;
+    }
+    // Check if the fault was caused by a EXEC on a protected page
+    int can_exec = (p->vma_list.prot[valid_vma] & PROT_EXEC) != 0;
+    if (cause == 12 && can_exec == 0){
+      setkilled(p);
+      goto finished;
+    }
+    // Get a new physical page
+    uint64 new_physical_addr = (uint64) kalloc();
+    if (new_physical_addr == 0){
+      setkilled(p);
+      goto finished;
+    }
+    // Clear the page 
+    memset((char *)new_physical_addr, 0, PGSIZE);
+    // Get the page address of the virtual address 
+    uint64 fault_page_addr = PGROUNDDOWN(fault_addr);
+    // Set the physical page into the virtual address space
+    int perms = PTE_V | PTE_U | PTE_R | (can_write == 1 ? PTE_W : 0) | (can_exec == 1 ? PTE_X : 0);
+    if (mappages(p->pagetable, fault_page_addr, PGSIZE, new_physical_addr, perms) < 0) {
+      setkilled(p);
+      goto finished;
+    }
+    // Read the content of the file in the VMA
+    int page_offset = fault_page_addr - p->vma_list.addr[valid_vma];
+    struct file* mapped_file = p->vma_list.file[valid_vma];
+    begin_op();
+    ilock(mapped_file->ip);
+    readi(mapped_file->ip, 0, new_physical_addr, p->vma_list.offset[valid_vma] + page_offset, PGSIZE);
+    iunlock(mapped_file->ip);
+    end_op();
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
@@ -72,10 +124,9 @@ usertrap(void)
     printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
     setkilled(p);
   }
-
+finished:
   if(killed(p))
     exit(-1);
-
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
     yield();
@@ -215,4 +266,3 @@ devintr()
     return 0;
   }
 }
-

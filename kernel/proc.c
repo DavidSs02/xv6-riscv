@@ -22,6 +22,7 @@ extern void forkret(void);
 static void freeproc(struct proc *p);
 
 extern char trampoline[]; // trampoline.S
+extern void vma_free(struct vma * vma, struct proc * p);
 
 // helps ensure that wakeups of wait()ing
 // parents are not lost. helps obey the
@@ -51,13 +52,13 @@ void
 procinit(void)
 {
   struct proc *p;
-  
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
       p->state = UNUSED;
       p->kstack = KSTACK((int) (p - proc));
+      p->vma_list.bottom_addr = (MAXVA) - (2*PGSIZE);
   }
 }
 
@@ -302,6 +303,9 @@ fork(void)
   }
   np->sz = p->sz;
 
+  // Copy vma from parent to child.
+  vma_copy(p, np);
+  
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
@@ -368,6 +372,9 @@ exit(int status)
       p->ofile[fd] = 0;
     }
   }
+  
+  // Unmap vma
+  vma_free(&p->vma_list,p);
 
   begin_op();
   iput(p->cwd);
